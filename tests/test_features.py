@@ -1,6 +1,4 @@
 from contextlib import asynccontextmanager
-from time import sleep
-from unittest.mock import patch
 
 import pytest
 import redis as pyredis
