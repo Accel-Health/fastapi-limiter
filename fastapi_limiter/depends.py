@@ -27,9 +27,15 @@ class RateLimiter:
 
     async def _check(self, key):
         redis = FastAPILimiter.redis
-        pexpire = await redis.evalsha(
-            FastAPILimiter.lua_sha, 1, key, str(self.times), str(self.milliseconds)
-        )
+        try:
+            pexpire = await redis.evalsha(
+                FastAPILimiter.lua_sha, 1, key, str(self.times), str(self.milliseconds)
+            )
+        except (pyredis.exceptions.NoScriptError, pyredis.exceptions.ConnectionError):
+            FastAPILimiter.lua_sha = await redis.script_load(FastAPILimiter.lua_script)
+            pexpire = await redis.evalsha(
+                FastAPILimiter.lua_sha, 1, key, str(self.times), str(self.milliseconds)
+            )
         return pexpire
 
     async def __call__(self, request: Request, response: Response):
@@ -50,13 +56,7 @@ class RateLimiter:
         callback = self.callback or FastAPILimiter.http_callback
         rate_key = await identifier(request)
         key = f"{FastAPILimiter.prefix}:{rate_key}:{route_index}:{dep_index}"
-        try:
-            pexpire = await self._check(key)
-        except pyredis.exceptions.NoScriptError:
-            FastAPILimiter.lua_sha = await FastAPILimiter.redis.script_load(
-                FastAPILimiter.lua_script
-            )
-            pexpire = await self._check(key)
+        pexpire = await self._check(key)
         if pexpire != 0:
             return await callback(request, response, pexpire)
 
